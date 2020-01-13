@@ -8,7 +8,9 @@ import xlwt
 from datetime import datetime
 import re
 
-REQUEST_TIMEOUT = 2
+REQUEST_TIMEOUT = 3
+HEADERS = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.102 Safari/537.36'}
+EMAIL_REG = '([a-zA-Z0-9_\-\.]+)@([a-zA-Z0-9_\-\.]+)\.([a-zA-Z]{2,5})'
 
 def saveToFile(string, file=None):
     if file==None:
@@ -17,32 +19,89 @@ def saveToFile(string, file=None):
     f.write(string)
     f.close()
 
-def getEmailFromContactUs(href):
+def requestUrl(url):
+    return requests.get(url,timeout= REQUEST_TIMEOUT, headers=HEADERS)
+
+def getEmailFromAboutUs(href):
     try:
-        response = requests.get(href,timeout= REQUEST_TIMEOUT)
+        response = requestUrl(href)
     except Timeout:
         print('The reqeust timed out')
     else:
         soup = BeautifulSoup(response.text, "html.parser")
-        contactUri = soup.find('a', string= ["Contact Us", "About Us"])
-        print(contactUri)
+        aboutUsUri = soup.find('a', string= ["About Us"])
+        if aboutUsUri is not None:
+            # if the uri starts with /
+            if aboutUsUri['href'].startswith('/'):
+                url = href + aboutUsUri['href']
+            else:
+                url = aboutUsUri['href']
+            print('about us url:' + url)
+            try:
+                response = requestUrl(url)
+            except Timeout:
+                print('The reqeust timed out')
+            else:
+                soup = BeautifulSoup(response.text, "html.parser")
+                email = soup.find(string=re.compile(EMAIL_REG + '$'))
+                print(email)
+                if email is not None:
+                    print('email from about us------>' + email)
+                    return email
+                else:
+                    email = soup.find(string=re.compile(EMAIL_REG + '$'))
+                    if email is not None:
+                        print('email from about us 2------>' + email.strip())
+                        return email.strip()
+                    else:
+                        email = soup.find(string=re.compile(EMAIL_REG))
+                        if email is not None:
+                            print('email from about us 3------>' + email.strip())
+                            return email.strip()
+                        else:
+                            return ''
+
+    return ''
+
+def getEmailFromContactUs(href):
+    try:
+        response = requestUrl(href)
+    except Timeout:
+        print('The reqeust timed out')
+    else:
+        soup = BeautifulSoup(response.text, "html.parser")
+        contactUri = soup.find('a', string= ["Contact Us", "联系我们"])
         if contactUri is not None:
             # if the uri starts with /
             if contactUri['href'].startswith('/'):
                 url = href + contactUri['href']
             else:
                 url = contactUri['href']
-            print('url:' + url)
+            print('contact url:' + url)
             try:
-                response = requests.get(url,timeout= REQUEST_TIMEOUT)
+                response = requestUrl(url)
             except Timeout:
                 print('The reqeust timed out')
             else:
                 soup = BeautifulSoup(response.text, "html.parser")
-                email = soup.find(string=re.compile('^([a-zA-Z0-9_\-\.]+)@([a-zA-Z0-9_\-\.]+)\.([a-zA-Z]{2,5})$'))
+                email = soup.find(string=re.compile(EMAIL_REG + '$'))
+                print(email)
                 if email is not None:
-                    print('email------>' + email)
+                    print('email from Contact us------>' + email)
                     return email
+                else:
+                    email = soup.find(string=re.compile(EMAIL_REG + '$'))
+                    if email is not None:
+                        print('email from Contact us 2------>' + email.strip())
+                        return email.strip()
+                    else:
+                        email = soup.find(string=re.compile(EMAIL_REG))
+                        if email is not None:
+                            print('email from Contact us 3------>' + email.strip())
+                            return email.strip()
+                        else:
+                            return ''
+
     return ''
 
 
@@ -50,11 +109,13 @@ def getEmailAddress(href):
     email = getEmailFromFacebook(href)
     if email is None or len(email) < 1:
         email = getEmailFromContactUs(href)
+        if email is None or len(email) < 1:
+            email = getEmailFromAboutUs(href)
     return email
 
 def getEmailFromFacebook(href):
     try:
-        response = requests.get(href,timeout= REQUEST_TIMEOUT)
+        response = requestUrl(href)
     except Timeout:
         print('The reqeust timed out')
     else:
@@ -69,9 +130,8 @@ def getEmailFromFacebook(href):
                     aboutLink = aLink['href'] + 'about'
                 else:
                     aboutLink = aLink['href'] + '/about'
-                print(aboutLink)
                 try:
-                    response = requests.get(aboutLink,timeout= REQUEST_TIMEOUT)
+                    response = requestUrl(aboutLink)
                 except Timeout:
                     print('The reqeust timed out- fetch email')
                 else:
@@ -79,22 +139,23 @@ def getEmailFromFacebook(href):
                     emailLink = soup.find('a', href=lambda href: href and ('@' in href))
                     if emailLink is not None:
                         email = emailLink.text
-                        print(email)
+                        print('email from FB:' + email)
                         return email
 
     return ''
 def getInstagramLink(href):
     try:
-        response = requests.get(href,timeout= REQUEST_TIMEOUT)
+        response = requestUrl(href)
     except Timeout:
         print('The reqeust timed out')
     else:
         soup = BeautifulSoup(response.text, "html.parser")
-        aLink = soup.find('a', href=lambda href: href and ("http://instagram.com" in href or "https://instagram.com" in href))
+        aLink = soup.find('a', href=lambda href: href and ("instagram.com" in href))
         if aLink is None:
             return ''
         else:
             if len(aLink['href']) > 0:
+                print('instagram:' + aLink['href'])
                 return aLink['href']
 
     return ''
@@ -114,7 +175,8 @@ def getUrls(text):
         node = td[i]
         children = node.findChildren('a', recursive = False)
         for child in children:
-            print(child['href'])
+            print('******************************************'+ str(i))
+            print('URL:' + child['href'])
             href = child['href']
             instagramLink = getInstagramLink(href)
             facebookLink = getEmailAddress(href)
@@ -144,6 +206,10 @@ if (response.text):
 #     else:
 #         break
 # print(response.text)
+
+
+
+# getEmailAddress('https://www.beeinspiredclothing.com/')
 
 
 
